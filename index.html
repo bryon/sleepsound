@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>Sleep Sounds</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+</head>
+<body>
+  <main>
+    <h1>Sleep Sounds</h1>
+
+    <div class="noise-types">
+      <button class="noise-btn" data-type="white">White</button>
+      <button class="noise-btn" data-type="pink">Pink</button>
+      <button class="noise-btn active" data-type="brown">Brown</button>
+    </div>
+
+    <button id="play-btn" class="play-button">&#9654;</button>
+
+    <div class="volume-section">
+      <span class="volume-label">&#128264;</span>
+      <input type="range" id="volume" min="0" max="100" value="70">
+      <span class="volume-label">&#128266;</span>
+    </div>
+
+    <div class="timer-section">
+      <div class="timer-options">
+        <button class="timer-btn" data-minutes="30">30m</button>
+        <button class="timer-btn" data-minutes="60">1h</button>
+        <button class="timer-btn" data-minutes="120">2h</button>
+        <button class="timer-btn" data-minutes="240">4h</button>
+        <button class="timer-btn active" data-minutes="480">8h</button>
+        <button class="timer-btn" data-minutes="0">&infin;</button>
+      </div>
+      <div id="timer-display">8:00:00</div>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

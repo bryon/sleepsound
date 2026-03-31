@@ -1,5 +1,6 @@
 let audioContext = null;
 let workletNode = null;
+let filterNode = null;
 let gainNode = null;
 let isPlaying = false;
 let currentType = 'brown';
@@ -16,9 +17,14 @@ async function initAudio() {
   audioContext = new AudioContext();
   await audioContext.audioWorklet.addModule('noise-processor.js');
   workletNode = new AudioWorkletNode(audioContext, 'noise-generator');
+  filterNode = audioContext.createBiquadFilter();
+  filterNode.type = 'lowpass';
+  filterNode.frequency.value = toneToFrequency(document.getElementById('tone').value);
+  filterNode.Q.value = 0.7; // Gentle rolloff, no resonant peak
   gainNode = audioContext.createGain();
   gainNode.gain.value = 0.7;
-  workletNode.connect(gainNode);
+  workletNode.connect(filterNode);
+  filterNode.connect(gainNode);
   gainNode.connect(audioContext.destination);
   workletNode.port.postMessage({ type: currentType });
 }
@@ -67,6 +73,18 @@ function setNoiseType(type) {
 
 function getVolumeSliderValue() {
   return document.getElementById('volume').value / 100;
+}
+
+// Map slider (0-100) to filter cutoff (100Hz–20kHz) on a log scale
+function toneToFrequency(val) {
+  const minLog = Math.log10(100);
+  const maxLog = Math.log10(20000);
+  return Math.pow(10, minLog + (val / 100) * (maxLog - minLog));
+}
+
+function setTone(val) {
+  if (!filterNode) return;
+  filterNode.frequency.setTargetAtTime(toneToFrequency(val), audioContext.currentTime, 0.02);
 }
 
 function setVolume(val) {
@@ -200,6 +218,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Volume
   document.getElementById('volume').addEventListener('input', (e) => {
     setVolume(e.target.value);
+  });
+
+  // Tone
+  document.getElementById('tone').addEventListener('input', (e) => {
+    setTone(e.target.value);
   });
 
   // Timer buttons

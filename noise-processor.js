@@ -79,6 +79,9 @@ class NoiseProcessor extends AudioWorkletProcessor {
   brown() {
     const white = Math.random() * 2 - 1;
     this.lastOut = (this.lastOut + 0.02 * white) / 1.02;
+    // Bound rare tail excursions so * 3.5 can't exceed ±1 and clip at the output.
+    if (this.lastOut > 0.285) this.lastOut = 0.285;
+    else if (this.lastOut < -0.285) this.lastOut = -0.285;
     return this.lastOut * 3.5;
   }
 }

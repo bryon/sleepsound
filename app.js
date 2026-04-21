@@ -2,6 +2,7 @@ let audioContext = null;
 let workletNode = null;
 let filterNode = null;
 let gainNode = null;
+let limiterNode = null;
 let isPlaying = false;
 let currentType = 'brown';
 let timerMinutes = 480; // 8 hours default
@@ -9,6 +10,7 @@ let timerEndTime = null;
 let timerInterval = null;
 let fadeScheduled = false;
 const FADE_DURATION_MIN = 5;
+const MAX_GAIN = 2.5; // limiter catches the peaks above 1.0
 
 // --- Audio Setup ---
 
@@ -22,10 +24,17 @@ async function initAudio() {
   filterNode.frequency.value = toneToFrequency(document.getElementById('tone').value);
   filterNode.Q.value = 0.7; // Gentle rolloff, no resonant peak
   gainNode = audioContext.createGain();
-  gainNode.gain.value = 0.7;
+  gainNode.gain.value = getVolumeSliderValue();
+  limiterNode = audioContext.createDynamicsCompressor();
+  limiterNode.threshold.value = -3;
+  limiterNode.knee.value = 0;
+  limiterNode.ratio.value = 20;
+  limiterNode.attack.value = 0.003;
+  limiterNode.release.value = 0.25;
   workletNode.connect(filterNode);
   filterNode.connect(gainNode);
-  gainNode.connect(audioContext.destination);
+  gainNode.connect(limiterNode);
+  limiterNode.connect(audioContext.destination);
   workletNode.port.postMessage({ type: currentType });
 }
 
@@ -72,7 +81,7 @@ function setNoiseType(type) {
 }
 
 function getVolumeSliderValue() {
-  return document.getElementById('volume').value / 100;
+  return (document.getElementById('volume').value / 100) * MAX_GAIN;
 }
 
 // Map slider (0-100) to filter cutoff (100Hz–20kHz) on a log scale
@@ -89,7 +98,7 @@ function setTone(val) {
 
 function setVolume(val) {
   if (!gainNode) return;
-  const v = val / 100;
+  const v = (val / 100) * MAX_GAIN;
   gainNode.gain.cancelScheduledValues(audioContext.currentTime);
   gainNode.gain.setTargetAtTime(v, audioContext.currentTime, 0.02);
 }
@@ -98,10 +107,8 @@ function setVolume(val) {
 
 function setTimerDuration(minutes) {
   timerMinutes = minutes;
-  document.querySelectorAll('.timer-btn').forEach((btn) => {
-    const m = parseInt(btn.dataset.minutes);
-    btn.classList.toggle('active', m === minutes);
-  });
+  document.getElementById('timer-selected').textContent = formatDurationLabel(minutes);
+  document.getElementById('infinity-btn').classList.toggle('active', minutes === 0);
   // If playing, restart timer with new duration
   if (isPlaying) {
     clearTimerInterval();
@@ -119,6 +126,12 @@ function setTimerDuration(minutes) {
       document.getElementById('timer-display').textContent = formatTime(minutes * 60);
     }
   }
+}
+
+function formatDurationLabel(minutes) {
+  if (minutes === 0) return '∞';
+  if (minutes === 30) return '30m';
+  return `${minutes / 60}h`;
 }
 
 function startTimer() {
@@ -225,9 +238,17 @@ document.addEventListener('DOMContentLoaded', () => {
     setTone(e.target.value);
   });
 
-  // Timer buttons
-  document.querySelectorAll('.timer-btn').forEach((btn) => {
-    btn.addEventListener('click', () => setTimerDuration(parseInt(btn.dataset.minutes)));
+  // Timer slider + infinity toggle
+  document.getElementById('timer-slider').addEventListener('input', (e) => {
+    setTimerDuration(Math.round(parseFloat(e.target.value) * 60));
+  });
+  document.getElementById('infinity-btn').addEventListener('click', () => {
+    if (timerMinutes === 0) {
+      const hours = parseFloat(document.getElementById('timer-slider').value);
+      setTimerDuration(Math.round(hours * 60));
+    } else {
+      setTimerDuration(0);
+    }
   });
 
   // Set initial UI state

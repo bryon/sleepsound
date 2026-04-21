@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sleepsound-v2';
+const CACHE_NAME = 'sleepsound-v5';
 const ASSETS = [
   './',
   './index.html',

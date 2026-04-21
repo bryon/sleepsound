@@ -142,25 +142,40 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 1rem;
 }
 
-.timer-options {
+.timer-controls {
+  width: 100%;
   display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 0.5rem;
 }
 
-.timer-btn {
+.timer-selected {
+  font-size: 0.85rem;
+  color: var(--accent);
+  min-width: 2.8rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-infinity {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-dim);
-  padding: 0.5rem 0.9rem;
-  border-radius: 1.5rem;
-  font-size: 0.8rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  font-size: 1.1rem;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
   transition: all 0.2s;
 }
 
-.timer-btn.active {
+.timer-infinity.active {
   background: var(--accent-glow);
   border-color: var(--accent);
   color: var(--accent);

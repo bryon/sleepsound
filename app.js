@@ -1,5 +1,8 @@
+// Keep VERSION in sync with CACHE_NAME in service-worker.js
+const VERSION = 'v6';
+
 let audioContext = null;
-let workletNode = null;
+let bufferSource = null;
 let filterNode = null;
 let gainNode = null;
 let limiterNode = null;
@@ -11,18 +14,95 @@ let timerInterval = null;
 let fadeScheduled = false;
 const FADE_DURATION_MIN = 5;
 const MAX_GAIN = 2.5; // limiter catches the peaks above 1.0
+const LOOP_SECONDS = 60;
+const CROSSFADE_SECONDS = 0.05; // 50ms self-loop crossfade
+
+// --- Noise generation (runs on main thread, once per type change) ---
+
+function generateWhite(n) {
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = Math.random() * 2 - 1;
+  return out;
+}
+
+function generatePink(n) {
+  const out = new Float32Array(n);
+  const rows = new Float64Array(6);
+  let sum = 0;
+  for (let i = 0; i < 6; i++) {
+    const v = Math.random() * 2 - 1;
+    rows[i] = v;
+    sum += v;
+  }
+  for (let i = 0; i < n; i++) {
+    let row = 0;
+    let m = i;
+    while (row < 5 && (m & 1) === 0) {
+      row++;
+      m >>= 1;
+    }
+    sum -= rows[row];
+    const nv = Math.random() * 2 - 1;
+    rows[row] = nv;
+    sum += nv;
+    out[i] = sum / 6;
+  }
+  return out;
+}
+
+function generateBrown(n) {
+  const out = new Float32Array(n);
+  let last = 0;
+  for (let i = 0; i < n; i++) {
+    const white = Math.random() * 2 - 1;
+    last = (last + 0.02 * white) / 1.02;
+    if (last > 0.285) last = 0.285;
+    else if (last < -0.285) last = -0.285;
+    out[i] = last * 3.5;
+  }
+  return out;
+}
+
+// Generate a seamless-loop buffer by crossfading the beginning with an
+// extended tail — so the transition from end-of-loop back to start is
+// statistically identical to continuous generation (no click).
+function buildLoopBuffer(type, sampleRate) {
+  const loopSamples = Math.floor(LOOP_SECONDS * sampleRate);
+  const xfadeSamples = Math.floor(CROSSFADE_SECONDS * sampleRate);
+  const totalSamples = loopSamples + xfadeSamples;
+
+  let raw;
+  switch (type) {
+    case 'white': raw = generateWhite(totalSamples); break;
+    case 'pink':  raw = generatePink(totalSamples); break;
+    case 'brown': raw = generateBrown(totalSamples); break;
+    default:      raw = generateBrown(totalSamples);
+  }
+
+  const buf = audioContext.createBuffer(1, loopSamples, sampleRate);
+  const ch = buf.getChannelData(0);
+
+  // Crossfade zone: blend raw[i] (fading in) with raw[loopSamples + i] (fading out).
+  // At i=0: ch[0] = raw[loopSamples], which is the natural "next sample" after raw[loopSamples-1].
+  for (let i = 0; i < xfadeSamples; i++) {
+    const t = i / xfadeSamples;
+    ch[i] = raw[i] * t + raw[loopSamples + i] * (1 - t);
+  }
+  for (let i = xfadeSamples; i < loopSamples; i++) {
+    ch[i] = raw[i];
+  }
+  return buf;
+}
 
 // --- Audio Setup ---
 
 async function initAudio() {
   if (audioContext) return;
   audioContext = new AudioContext();
-  await audioContext.audioWorklet.addModule('noise-processor.js');
-  workletNode = new AudioWorkletNode(audioContext, 'noise-generator');
   filterNode = audioContext.createBiquadFilter();
   filterNode.type = 'lowpass';
   filterNode.frequency.value = toneToFrequency(document.getElementById('tone').value);
-  filterNode.Q.value = 0.7; // Gentle rolloff, no resonant peak
+  filterNode.Q.value = 0.7;
   gainNode = audioContext.createGain();
   gainNode.gain.value = getVolumeSliderValue();
   limiterNode = audioContext.createDynamicsCompressor();
@@ -31,11 +111,26 @@ async function initAudio() {
   limiterNode.ratio.value = 20;
   limiterNode.attack.value = 0.003;
   limiterNode.release.value = 0.25;
-  workletNode.connect(filterNode);
   filterNode.connect(gainNode);
   gainNode.connect(limiterNode);
   limiterNode.connect(audioContext.destination);
-  workletNode.port.postMessage({ type: currentType });
+
+  startSource(currentType);
+}
+
+function startSource(type) {
+  const buf = buildLoopBuffer(type, audioContext.sampleRate);
+  const src = audioContext.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  src.connect(filterNode);
+  src.start(0);
+
+  if (bufferSource) {
+    try { bufferSource.stop(); } catch (_) {}
+    try { bufferSource.disconnect(); } catch (_) {}
+  }
+  bufferSource = src;
 }
 
 async function play() {
@@ -54,7 +149,6 @@ function pause() {
   isPlaying = false;
   updatePlayButton();
   clearTimerInterval();
-  // Cancel any scheduled fade
   if (fadeScheduled) {
     gainNode.gain.cancelScheduledValues(audioContext.currentTime);
     gainNode.gain.setValueAtTime(getVolumeSliderValue(), audioContext.currentTime);
@@ -71,8 +165,8 @@ function stop() {
 
 function setNoiseType(type) {
   currentType = type;
-  if (workletNode) {
-    workletNode.port.postMessage({ type });
+  if (audioContext) {
+    startSource(type);
   }
   document.querySelectorAll('.noise-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.type === type);
@@ -109,7 +203,6 @@ function setTimerDuration(minutes) {
   timerMinutes = minutes;
   document.getElementById('timer-selected').textContent = formatDurationLabel(minutes);
   document.getElementById('infinity-btn').classList.toggle('active', minutes === 0);
-  // If playing, restart timer with new duration
   if (isPlaying) {
     clearTimerInterval();
     if (fadeScheduled) {
@@ -119,9 +212,8 @@ function setTimerDuration(minutes) {
     }
     startTimer();
   } else {
-    // Update display to show selected duration
     if (minutes === 0) {
-      document.getElementById('timer-display').textContent = '\u221e';
+      document.getElementById('timer-display').textContent = '∞';
     } else {
       document.getElementById('timer-display').textContent = formatTime(minutes * 60);
     }
@@ -138,13 +230,12 @@ function startTimer() {
   clearTimerInterval();
   if (timerMinutes === 0) {
     timerEndTime = null;
-    document.getElementById('timer-display').textContent = '\u221e';
+    document.getElementById('timer-display').textContent = '∞';
     return;
   }
 
   timerEndTime = Date.now() + timerMinutes * 60 * 1000;
 
-  // Schedule fade-out on the audio thread
   const fadeSeconds = Math.min(FADE_DURATION_MIN * 60, timerMinutes * 60);
   const fadeStartTime = audioContext.currentTime + (timerMinutes * 60 - fadeSeconds);
   const fadeEndTime = audioContext.currentTime + timerMinutes * 60;
@@ -155,7 +246,6 @@ function startTimer() {
   gainNode.gain.linearRampToValueAtTime(0, fadeEndTime);
   fadeScheduled = true;
 
-  // UI countdown — recalculates from timerEndTime to handle drift
   updateTimerDisplay();
   timerInterval = setInterval(() => {
     const remaining = Math.max(0, timerEndTime - Date.now());
@@ -177,7 +267,7 @@ function clearTimerInterval() {
 function updateTimerDisplay() {
   const el = document.getElementById('timer-display');
   if (!timerEndTime || timerMinutes === 0) {
-    el.textContent = timerMinutes === 0 ? '\u221e' : formatTime(timerMinutes * 60);
+    el.textContent = timerMinutes === 0 ? '∞' : formatTime(timerMinutes * 60);
     return;
   }
   const remaining = Math.max(0, Math.ceil((timerEndTime - Date.now()) / 1000));
@@ -195,7 +285,7 @@ function formatTime(totalSeconds) {
 
 function updatePlayButton() {
   const btn = document.getElementById('play-btn');
-  btn.textContent = isPlaying ? '\u23F8' : '\u25B6';
+  btn.textContent = isPlaying ? '⏸' : '▶';
   btn.classList.toggle('playing', isPlaying);
 }
 
@@ -218,27 +308,22 @@ function updateMediaSession() {
 // --- Init ---
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Noise type buttons
   document.querySelectorAll('.noise-btn').forEach((btn) => {
     btn.addEventListener('click', () => setNoiseType(btn.dataset.type));
   });
 
-  // Play button
   document.getElementById('play-btn').addEventListener('click', () => {
     isPlaying ? pause() : play();
   });
 
-  // Volume
   document.getElementById('volume').addEventListener('input', (e) => {
     setVolume(e.target.value);
   });
 
-  // Tone
   document.getElementById('tone').addEventListener('input', (e) => {
     setTone(e.target.value);
   });
 
-  // Timer slider + infinity toggle
   document.getElementById('timer-slider').addEventListener('input', (e) => {
     setTimerDuration(Math.round(parseFloat(e.target.value) * 60));
   });
@@ -251,11 +336,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Set initial UI state
   setNoiseType(currentType);
   setTimerDuration(timerMinutes);
+  document.getElementById('version').textContent = VERSION;
 
-  // Register service worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js');
   }

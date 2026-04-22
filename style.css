@@ -187,3 +187,14 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text-dim);
   letter-spacing: 0.05em;
 }
+
+.version {
+  position: fixed;
+  bottom: max(0.5rem, env(safe-area-inset-bottom));
+  right: max(0.5rem, env(safe-area-inset-right));
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  opacity: 0.5;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  pointer-events: none;
+}

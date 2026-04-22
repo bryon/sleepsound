@@ -1,10 +1,10 @@
-const CACHE_NAME = 'sleepsound-v5';
+// Keep in sync with VERSION in app.js
+const CACHE_NAME = 'sleepsound-v6';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
-  './noise-processor.js',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
